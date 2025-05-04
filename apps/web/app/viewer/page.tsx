@@ -157,21 +157,9 @@ export default function ViewerPage() {
           contours = data2.contours;
         }
 
-        let isRendering = false; // Flag to prevent multiple executions
-
         function renderOverlay() {
-          if (isRendering) return; // Skip if already rendering
-          isRendering = true;
-
           const viewer = viewerInstanceRef.current;
-          if (!viewer) {
-            isRendering = false;
-            return;
-          }
-          if (!canvas) {
-            isRendering = false;
-            return;
-          }
+          if (!viewer || !canvas || !context) return;
           context.clearRect(0, 0, canvas.width, canvas.height);
           const zoom = viewer.viewport.getZoom(true);
           console.log("Current zoom level:", zoom);
@@ -215,9 +203,7 @@ export default function ViewerPage() {
             function drawBatch() {
               const start = batchIndex * batchSize;
               const end = Math.min(start + batchSize, filteredCentroidCoord.length);
-
               context.beginPath();
-
               for (const [sx, sy] of filteredCentroidCoord.slice(start, end)) {
                 if (
                   sx == null || sy == null ||
@@ -236,7 +222,6 @@ export default function ViewerPage() {
                 requestAnimationFrame(drawBatch); // 下一帧继续绘制
               } else {
                 console.log("All centroids drawn.");
-                isRendering = false; // Reset the flag after rendering is complete
               }
             }
             drawBatch(); // 开始绘制第一批次
@@ -244,11 +229,13 @@ export default function ViewerPage() {
         }
 
         await fetchSegmentationData();
-        viewer.addHandler("viewport-change", renderOverlay);
+        viewer.addHandler("viewport-change", () => {
+          renderOverlay(); // Start a new rendering
+        });
         viewer.addHandler("resize", () => {
           canvas.width = viewer.container.clientWidth;
           canvas.height = viewer.container.clientHeight;
-          renderOverlay();
+          renderOverlay(); // Start a new rendering
         });
       };
     }
