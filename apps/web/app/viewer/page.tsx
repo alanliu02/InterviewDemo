@@ -130,6 +130,7 @@ export default function ViewerPage() {
         const viewer = viewerInstanceRef.current;
         if (!viewer) return;
         let centroids: number[][] = [];
+        let contours: number[][][] = [];
         const canvas = overlayCanvasRef.current;
         if (!canvas) return;
         const context = canvas.getContext("2d")!;
@@ -139,10 +140,12 @@ export default function ViewerPage() {
         const DRAW_THRESHOLD = 5;
 
         async function fetchSegmentationData() {
-          const res = await fetch("http://127.0.0.1:8000/segmentation");
-          const data = await res.json();
-          centroids = data.centroids;
-          // contours = data.contours;
+          const res1 = await fetch("http://127.0.0.1:8000/segmentation/centroids");
+          const data1 = await res1.json();
+          centroids = data1.centroids;
+          const res2 = await fetch("http://127.0.0.1:8000/segmentation/contours");
+          const data2 = await res2.json();
+          contours = data2.contours;
         }
 
         function renderOverlay() {
@@ -157,6 +160,14 @@ export default function ViewerPage() {
             return [pt.x, pt.y];
           };
 
+          const filteredCentroids = centroids.filter(([x, y]) => {
+            if (x == null || y == null) return false;
+            const cx = x * 16;
+            const cy = y * 16;
+
+            return viewer && cx >= 0 && cy >= 0 && cx <= viewer.world.getItemAt(0).getContentSize().x && cy <= viewer.world.getItemAt(0).getContentSize().y;
+          });
+
           if (zoom < DRAW_THRESHOLD) {
             const arcSize = 0.5 * zoom;
             const viewWidth = canvas.width;
@@ -168,20 +179,13 @@ export default function ViewerPage() {
 
             function drawBatch() {
               const start = batchIndex * batchSize;
-              const end = Math.min(start + batchSize, centroids.length);
+              const end = Math.min(start + batchSize, filteredCentroids.length);
 
               context.beginPath();
 
-              for (let i = start; i < end; i++) {
-                const centroid = centroids[i];
-                if (!centroid) continue;
-                const [x, y] = centroid;
-                if (x == null || y == null) continue;
-                const cx = x * 16;
-                const cy = y * 16;
-
-                if (!viewer || cx < 0 || cy < 0 || cx > viewer.world.getItemAt(0).getContentSize().x || cy > viewer.world.getItemAt(0).getContentSize().y)
-                  continue;
+              for (const [x, y] of filteredCentroids.slice(start, end)) {
+                const cx = (x ?? 0) * 16;
+                const cy = (y ?? 0) * 16;
 
                 const [sx, sy] = toScreen(cx, cy);
                 if (
@@ -197,7 +201,7 @@ export default function ViewerPage() {
               context.fill();
 
               batchIndex++;
-              if (batchIndex * batchSize < centroids.length) {
+              if (batchIndex * batchSize < filteredCentroids.length) {
                 requestAnimationFrame(drawBatch); // 下一帧继续绘制
               } else {
                 console.log("All centroids drawn.");
