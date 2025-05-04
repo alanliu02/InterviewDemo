@@ -107,13 +107,6 @@ export default function ViewerPage() {
           canvas.height = viewer.container.clientHeight;
           const osdCanvasLayer = viewer.canvas;
           osdCanvasLayer.appendChild(canvas);
-          // const controlContainer = viewer.container.querySelector(".openseadragon-controls");
-          // if (controlContainer) {
-          //   viewer.container.insertBefore(canvas, controlContainer);
-          // }
-          // else {
-          //   viewer.container.appendChild(canvas)
-          // }
           overlayCanvasRef.current = canvas; // Store the canvas reference
           viewerInstanceRef.current = viewer;
         }
@@ -157,7 +150,10 @@ export default function ViewerPage() {
           contours = data2.contours;
         }
 
+        let renderId = 0; // Unique ID for each render cycle
+
         function renderOverlay() {
+          const currentRenderId = ++renderId; // Increment and capture the current render ID
           const viewer = viewerInstanceRef.current;
           if (!viewer || !canvas || !context) return;
           context.clearRect(0, 0, canvas.width, canvas.height);
@@ -201,27 +197,32 @@ export default function ViewerPage() {
             const batchSize = 5000; // 每批次绘制的点数量
 
             function drawBatch() {
+              if (currentRenderId !== renderId) {
+              console.log("Render aborted due to a new event.");
+              return; // Abort if a new render cycle has started
+              }
+
               const start = batchIndex * batchSize;
               const end = Math.min(start + batchSize, filteredCentroidCoord.length);
               context.beginPath();
               for (const [sx, sy] of filteredCentroidCoord.slice(start, end)) {
-                if (
-                  sx == null || sy == null ||
-                  sx < -arcSize || sy < -arcSize || sx > viewWidth + arcSize || sy > viewHeight + arcSize
-                ) continue;
+              if (
+                sx == null || sy == null ||
+                sx < -arcSize || sy < -arcSize || sx > viewWidth + arcSize || sy > viewHeight + arcSize
+              ) continue;
 
-                context.moveTo(sx + arcSize, sy);
-                context.arc(sx, sy, Math.max(MIN_VISIBLE_RADIUS, arcSize), 0, 2 * Math.PI);
+              context.moveTo(sx + arcSize, sy);
+              context.arc(sx, sy, Math.max(MIN_VISIBLE_RADIUS, arcSize), 0, 2 * Math.PI);
               }
 
               context.fillStyle = "green";
               context.fill();
               batchIndex++;
 
-              if (batchIndex * batchSize < filteredCentroidCoord.length) {
-                requestAnimationFrame(drawBatch); // 下一帧继续绘制
-              } else {
-                console.log("All centroids drawn.");
+              if (currentRenderId === renderId && batchIndex * batchSize < filteredCentroidCoord.length) {
+              requestAnimationFrame(drawBatch); // 下一帧继续绘制
+              } else if (currentRenderId === renderId) {
+              console.log("All centroids drawn.", renderId);
               }
             }
             drawBatch(); // 开始绘制第一批次
