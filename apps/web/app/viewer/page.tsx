@@ -187,8 +187,8 @@ export default function ViewerPage() {
           const filteredCentroidCoord = filteredCentroids.map((point) => [point.x, point.y]);
           console.log("Filtered centroids count:", filteredCentroidCoord.length);
 
-          if (zoom < DRAW_THRESHOLD) {
-            const arcSize = 0.5 * zoom;
+            if (zoom < DRAW_THRESHOLD) {
+            const arcSize = 0.25 * zoom;
             const viewWidth = canvas.width;
             const viewHeight = canvas.height;
             const MIN_VISIBLE_RADIUS = 0.01;
@@ -226,35 +226,93 @@ export default function ViewerPage() {
               }
             }
             drawBatch(); // 开始绘制第一批次
+            }
+          if (zoom >= DRAW_THRESHOLD) {
+            if (filteredCentroidIndices.length === 0) {
+              console.log("No centroids to draw at this zoom level.");
+              return;
+            }
+
+            const batchSize = 2000; // 每批次绘制的轮廓数量
+            let batchIndex = 0;
+
+            async function drawContoursBatch() {
+              if (currentRenderId !== renderId) {
+                console.log("Render aborted due to a new event.");
+                return; // Abort if a new render cycle has started
+              }
+
+              const start = batchIndex * batchSize;
+              const end = Math.min(start + batchSize, filteredCentroidIndices.length);
+              const batchIndexs = filteredCentroidIndices.slice(start, end);
+
+              if (batchIndexs.length === 0) {
+                console.log("No more batches to draw.");
+                return;
+              }
+
+              await fetchContoursData(batchIndexs);
+
+              context.beginPath();
+              for (const contour of contours) {
+                if (!contour || contour.length === 0) continue;
+                let cst: [number, number] = [0, 0];
+                if (contour[0] && contour[0].length === 2) {
+                  cst = contour[0] as [number, number];
+                }
+                const startPoint = toScreen(cst[0] * 16, cst[1] * 16) as [number, number];
+                context.moveTo(startPoint[0], startPoint[1]);
+                for (let i = 1; i < contour.length; i++) {
+                  const point = contour[i];
+                  if (!point) continue;
+                  const [x, y] = point as [number, number];
+                  const screenPoint = toScreen(x * 16, y * 16) as [number, number];
+                  context.lineTo(screenPoint[0], screenPoint[1]);
+                }
+                context.lineTo(startPoint[0], startPoint[1]); // Close the path
+              }
+            context.closePath();
+            context.fillStyle = "rgba(0, 208, 255,0.5)";
+            context.fill();
+
+            batchIndex++;
+            if (currentRenderId === renderId && batchIndex * batchSize < filteredCentroidIndices.length) {
+              requestAnimationFrame(drawContoursBatch); // 下一帧继续绘制
+            } else if (currentRenderId === renderId) {
+              console.log("All contours drawn.", renderId);
+            }
+            drawContoursBatch(); // 开始绘制第一批次
           }
+          drawContoursBatch(); // 开始绘制第一批次
         }
+      }
 
-        await fetchSegmentationData();
-        viewer.addHandler("viewport-change", () => {
-          renderOverlay(); // Start a new rendering
-        });
-        viewer.addHandler("resize", () => {
-          canvas.width = viewer.container.clientWidth;
-          canvas.height = viewer.container.clientHeight;
-          renderOverlay(); // Start a new rendering
-        });
-      };
-    }
+      await fetchSegmentationData();
+      viewer.addHandler("viewport-change", () => {
+        renderOverlay(); // Start a new rendering
+      });
+      viewer.addHandler("resize", () => {
+        canvas.width = viewer.container.clientWidth;
+        canvas.height = viewer.container.clientHeight;
+        renderOverlay(); // Start a new rendering
+      });
+    };
+  }
     initOpenSeadragon();
-  }, []);
+}, []);
 
-  return (
-    <div className="p-4">
-      <div
-        id="osd-viewer"
-        ref={viewerRef}
-        style={{
-          width: '100%',
-          height: 'calc(100vh - 66px)',
-          position: 'relative',
-        }}
-      >
-      </div>
+return (
+  <div className="p-4">
+    <div
+      id="osd-viewer"
+      ref={viewerRef}
+      style={{
+        width: '100%',
+        height: 'calc(100vh - 66px)',
+        position: 'relative',
+      }}
+    >
     </div>
-  );
+  </div>
+);
 }
