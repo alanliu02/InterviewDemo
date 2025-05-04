@@ -19,7 +19,7 @@ Management page may show only the segmentation that can be viewed in current vie
 
 User-annotation function is also a time-consuming function to implement. One simple approach is to use a square tool to crop area. The segmentation in this area can be marked as user-defined segmentations, and will be rendered in color that user assigned. In addition, it will be collected to the Management page, maybe for future use.
 
-## Initialize
+## Instruction
 python version requirement: 3.11
 
 Install python package `pip install -r requirements.txt`
@@ -27,3 +27,6 @@ Install python package `pip install -r requirements.txt`
 Initialize the app (first-time): `npm i`.
 
 Use `npm start` to run the whole app
+
+## Demo Video
+See `InterviewDemo.mp4`
