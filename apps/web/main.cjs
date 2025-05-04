@@ -5,10 +5,11 @@ let mainWindow;
 
 app.on('ready', () => {
   mainWindow = new BrowserWindow({
-    width: 800,
-    height: 600,
+    width: 1280,
+    height: 720,
     webPreferences: {
       nodeIntegration: true,
+      devTools: true, // Enable DevTools for debugging
     },
   });
 
@@ -17,6 +18,7 @@ app.on('ready', () => {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+  mainWindow.webContents.openDevTools();
 });
 
 app.on('window-all-closed', () => {
