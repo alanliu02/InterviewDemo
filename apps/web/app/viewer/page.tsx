@@ -137,21 +137,41 @@ export default function ViewerPage() {
         canvas.width = viewer.container.clientWidth;
         canvas.height = viewer.container.clientHeight;
 
-        const DRAW_THRESHOLD = 5;
+        const DRAW_THRESHOLD = 10;
 
         async function fetchSegmentationData() {
           const res1 = await fetch("http://127.0.0.1:8000/segmentation/centroids");
           const data1 = await res1.json();
           centroids = data1.centroids;
-          const res2 = await fetch("http://127.0.0.1:8000/segmentation/contours");
+        }
+
+        async function fetchContoursData(batchIndexs: number[]) {
+          const res2 = await fetch("http://127.0.0.1:8000/segmentation/contours", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ indices: batchIndexs }),
+          });
           const data2 = await res2.json();
           contours = data2.contours;
         }
 
+        let isRendering = false; // Flag to prevent multiple executions
+
         function renderOverlay() {
+          if (isRendering) return; // Skip if already rendering
+          isRendering = true;
+
           const viewer = viewerInstanceRef.current;
-          if (!viewer) return;
-          if (!canvas) return;
+          if (!viewer) {
+            isRendering = false;
+            return;
+          }
+          if (!canvas) {
+            isRendering = false;
+            return;
+          }
           context.clearRect(0, 0, canvas.width, canvas.height);
           const zoom = viewer.viewport.getZoom(true);
           console.log("Current zoom level:", zoom);
@@ -160,13 +180,28 @@ export default function ViewerPage() {
             return [pt.x, pt.y];
           };
 
-          const filteredCentroids = centroids.filter(([x, y]) => {
-            if (x == null || y == null) return false;
-            const cx = x * 16;
-            const cy = y * 16;
+          const filteredCentroids = centroids
+            .map(([x, y], index) => {
+              if (x == null || y == null) return null;
+              const cx = x * 16;
+              const cy = y * 16;
+              const [sx, sy] = toScreen(cx, cy)
+              if (
+                viewer &&
+                viewer.viewport &&
+                viewer.viewport.getBounds().containsPoint(
+                  viewer.viewport.imageToViewportCoordinates(cx, cy)
+                )
+              ) {
+                return { x: sx, y: sy, index };
+              }
+              return null;
+            })
+            .filter((point): point is { x: number; y: number; index: number } => point !== null);
 
-            return viewer && cx >= 0 && cy >= 0 && cx <= viewer.world.getItemAt(0).getContentSize().x && cy <= viewer.world.getItemAt(0).getContentSize().y;
-          });
+          const filteredCentroidIndices = filteredCentroids.map((point) => point.index);
+          const filteredCentroidCoord = filteredCentroids.map((point) => [point.x, point.y]);
+          console.log("Filtered centroids count:", filteredCentroidCoord.length);
 
           if (zoom < DRAW_THRESHOLD) {
             const arcSize = 0.5 * zoom;
@@ -175,19 +210,15 @@ export default function ViewerPage() {
             const MIN_VISIBLE_RADIUS = 0.01;
 
             let batchIndex = 0;
-            const batchSize = 10000; // 每批次绘制的点数量
+            const batchSize = 5000; // 每批次绘制的点数量
 
             function drawBatch() {
               const start = batchIndex * batchSize;
-              const end = Math.min(start + batchSize, filteredCentroids.length);
+              const end = Math.min(start + batchSize, filteredCentroidCoord.length);
 
               context.beginPath();
 
-              for (const [x, y] of filteredCentroids.slice(start, end)) {
-                const cx = (x ?? 0) * 16;
-                const cy = (y ?? 0) * 16;
-
-                const [sx, sy] = toScreen(cx, cy);
+              for (const [sx, sy] of filteredCentroidCoord.slice(start, end)) {
                 if (
                   sx == null || sy == null ||
                   sx < -arcSize || sy < -arcSize || sx > viewWidth + arcSize || sy > viewHeight + arcSize
@@ -199,12 +230,13 @@ export default function ViewerPage() {
 
               context.fillStyle = "green";
               context.fill();
-
               batchIndex++;
-              if (batchIndex * batchSize < filteredCentroids.length) {
+
+              if (batchIndex * batchSize < filteredCentroidCoord.length) {
                 requestAnimationFrame(drawBatch); // 下一帧继续绘制
               } else {
                 console.log("All centroids drawn.");
+                isRendering = false; // Reset the flag after rendering is complete
               }
             }
             drawBatch(); // 开始绘制第一批次

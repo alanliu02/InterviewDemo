@@ -79,8 +79,8 @@ def load_seg():
         }
     return info
 
-@app.get("/segmentation/contours")
-def load_seg():
+@app.post("/segmentation/contours")
+def load_seg(batch: dict):
     filename = list_svs_seg_files()[0]
     file_path = SVS_DIR / filename
     if not file_path.exists():
@@ -88,12 +88,20 @@ def load_seg():
     global h5_seg
     h5_seg = File(file_path, 'r')
     grp = h5_seg['SegmentationNode']
-    contours = grp['contours'][:10000]
-    info = {
-        "shape": grp['contours'].shape,
-        "contours": contours.tolist(),
+    
+    indices = batch.get("indices", [])
+    if not indices:
+        return {"error": "No indices provided"}
+    
+    try:
+        contours = grp['contours'][indices]
+        info = {
+            "shape": contours.shape,
+            "contours": contours.tolist(),
         }
-    return info
+        return info
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.get("/get_h5_info/{filename}")
 def get_h5_info(filename: str):
