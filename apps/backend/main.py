@@ -28,6 +28,20 @@ def list_svs_files():
 def list_svs_seg_files():
     return [str(f.name) for f in SVS_DIR.glob("*.svs.seg.h5")]
 
+@app.get("/load_slide/")
+def load_slide():
+    filename = list_svs_files()[0]
+    file_path = SVS_DIR / filename
+    global slide
+    slide = tiffslide.TiffSlide(str(file_path))
+    info = {
+        "dimensions": slide.dimensions,
+        "level_count": slide.level_count,
+        "level_dimensions": [slide.level_dimensions[i] for i in range(slide.level_count)],
+        "level_downsamples": [slide.level_downsamples[i] for i in range(slide.level_count)]
+    }
+    return info
+
 @app.get("/load_slide/{filename}")
 def load_slide(filename: str):
     file_path = SVS_DIR / filename
@@ -64,7 +78,14 @@ def get_h5_info(filename: str):
         return info
     except Exception as e:
         return {"error": str(e)}
-    
+
+@app.get('/slide/dimensions')
+def get_slide_dimensions():
+    global slide
+    if slide is None:
+        raise HTTPException(status_code=404, detail="Slide not loaded. Please load a slide first.")
+    return {"width": slide.dimensions[0],"height": slide.dimensions[1]}
+
 @app.get('/slide/{level}/{col}_{row}.jpeg')
 def get_tile(level: int, col: int, row: int):
     global slide

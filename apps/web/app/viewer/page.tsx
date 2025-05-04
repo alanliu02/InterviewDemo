@@ -98,13 +98,13 @@ export default function ViewerPage() {
 
         // Use setTimeout to wait for the Flask server to start.
         // setTimeout(function () {
-          // svs_width = 460000(dimension of the image) * 4
-          // svs_height = 329914(dimension of the image) * 4
-          const svs_width = 184000;
-          const svs_height = 131656;
+          // Fetch dimensions dynamically from the server or a configuration
+          const response = await fetch("http://127.0.0.1:8000/slide/dimensions");
+          const { width: svs_width, height: svs_height } = await response.json();
           const tile_size = 512;
           const maxLevel = 8;
-          load_OpenSeadragon(svs_width, svs_height, tile_size, maxLevel);
+          console.log("WSI dimensions:", svs_width, svs_height);
+          load_OpenSeadragon(svs_width*4, svs_height*4, tile_size, maxLevel);
         // }, 2000);
       }
     };
@@ -113,11 +113,10 @@ export default function ViewerPage() {
 
   return (
     <div className="p-4">
-      <h2 className="text-xl mb-4">WSI Viewer</h2>
       <div
         id="osd-viewer"
         ref={viewerRef} // 绑定 ref 到 div 元素
-        style={{ width: "100%", height: "80vh" }}
+        style={{ width: '100%', height: 'calc(100vh - 66px)' }}
       />
     </div>
   );
