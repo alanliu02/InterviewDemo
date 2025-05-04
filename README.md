@@ -30,3 +30,6 @@ Use `npm start` to run the whole app
 
 ## Demo Video
 See `InterviewDemo.mp4`
+
+## API Spec
+![alt text](API_spec.png)
