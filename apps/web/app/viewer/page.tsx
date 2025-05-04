@@ -194,7 +194,7 @@ export default function ViewerPage() {
             const MIN_VISIBLE_RADIUS = 0.01;
 
             let batchIndex = 0;
-            const batchSize = 5000; // 每批次绘制的点数量
+            const batchSize = 10000; // 每批次绘制的点数量
 
             function drawBatch() {
               if (currentRenderId !== renderId) {
