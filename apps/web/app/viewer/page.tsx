@@ -38,6 +38,8 @@ if (typeof window !== "undefined") {
 
 export default function ViewerPage() {
   const viewerRef = useRef<HTMLDivElement | null>(null); // 修复 viewerRef 的类型定义
+  const viewerInstanceRef = useRef<OpenSeadragon.Viewer | null>(null);
+  const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null); // Define overlayCanvasRef
   const [isSidebarVisible, setIsSidebarVisible] = useState(true); // Sidebar visibility state
   const [sidebarContent, setSidebarContent] = useState(null);
 
@@ -94,20 +96,126 @@ export default function ViewerPage() {
             var imagePoint = viewer.viewport.viewportToImageCoordinates(viewportPoint);
           });
           console.log("OpenSeadragon viewer initialized successfully.");
+          // Create and configure the overlay canvas
+          const canvas = document.createElement("canvas");
+          canvas.id = "overlay-canvas";
+          canvas.style.position = "absolute";
+          canvas.style.top = "0";
+          canvas.style.left = "0";
+          canvas.style.pointerEvents = "none";
+          canvas.width = viewer.container.clientWidth;
+          canvas.height = viewer.container.clientHeight;
+          const osdCanvasLayer = viewer.canvas;
+          osdCanvasLayer.appendChild(canvas);
+          // const controlContainer = viewer.container.querySelector(".openseadragon-controls");
+          // if (controlContainer) {
+          //   viewer.container.insertBefore(canvas, controlContainer);
+          // }
+          // else {
+          //   viewer.container.appendChild(canvas)
+          // }
+          overlayCanvasRef.current = canvas; // Store the canvas reference
+          viewerInstanceRef.current = viewer;
         }
 
-        // Use setTimeout to wait for the Flask server to start.
-        // setTimeout(function () {
-          // Fetch dimensions dynamically from the server or a configuration
-          const response = await fetch("http://127.0.0.1:8000/slide/dimensions");
-          const { width: svs_width, height: svs_height } = await response.json();
-          const tile_size = 512;
-          const maxLevel = 8;
-          console.log("WSI dimensions:", svs_width, svs_height);
-          load_OpenSeadragon(svs_width*4, svs_height*4, tile_size, maxLevel);
-        // }, 2000);
-      }
-    };
+        // Fetch dimensions dynamically from the server or a configuration
+        const response = await fetch("http://127.0.0.1:8000/slide/dimensions");
+        const { width: svs_width, height: svs_height } = await response.json();
+        const tile_size = 512;
+        const maxLevel = 8;
+        console.log("WSI dimensions:", svs_width, svs_height);
+        load_OpenSeadragon(svs_width * 4, svs_height * 4, tile_size, maxLevel);
+
+        // Initialize the overlay canvas
+        const viewer = viewerInstanceRef.current;
+        if (!viewer) return;
+        let centroids: number[][] = [];
+        const canvas = overlayCanvasRef.current;
+        if (!canvas) return;
+        const context = canvas.getContext("2d")!;
+        canvas.width = viewer.container.clientWidth;
+        canvas.height = viewer.container.clientHeight;
+
+        const DRAW_THRESHOLD = 5;
+
+        async function fetchSegmentationData() {
+          const res = await fetch("http://127.0.0.1:8000/segmentation");
+          const data = await res.json();
+          centroids = data.centroids;
+          // contours = data.contours;
+        }
+
+        function renderOverlay() {
+          const viewer = viewerInstanceRef.current;
+          if (!viewer) return;
+          if (!canvas) return;
+          context.clearRect(0, 0, canvas.width, canvas.height);
+          const zoom = viewer.viewport.getZoom(true);
+          console.log("Current zoom level:", zoom);
+          const toScreen = (x: number, y: number) => {
+            const pt = viewer.viewport.imageToViewerElementCoordinates(new OSD.Point(x, y));
+            return [pt.x, pt.y];
+          };
+
+          if (zoom < DRAW_THRESHOLD) {
+            const arcSize = 0.5 * zoom;
+            const viewWidth = canvas.width;
+            const viewHeight = canvas.height;
+            const MIN_VISIBLE_RADIUS = 0.01;
+
+            let batchIndex = 0;
+            const batchSize = 10000; // 每批次绘制的点数量
+
+            function drawBatch() {
+              const start = batchIndex * batchSize;
+              const end = Math.min(start + batchSize, centroids.length);
+
+              context.beginPath();
+
+              for (let i = start; i < end; i++) {
+                const centroid = centroids[i];
+                if (!centroid) continue;
+                const [x, y] = centroid;
+                if (x == null || y == null) continue;
+                const cx = x * 16;
+                const cy = y * 16;
+
+                if (!viewer || cx < 0 || cy < 0 || cx > viewer.world.getItemAt(0).getContentSize().x || cy > viewer.world.getItemAt(0).getContentSize().y)
+                  continue;
+
+                const [sx, sy] = toScreen(cx, cy);
+                if (
+                  sx == null || sy == null ||
+                  sx < -arcSize || sy < -arcSize || sx > viewWidth + arcSize || sy > viewHeight + arcSize
+                ) continue;
+
+                context.moveTo(sx + arcSize, sy);
+                context.arc(sx, sy, Math.max(MIN_VISIBLE_RADIUS, arcSize), 0, 2 * Math.PI);
+              }
+
+              context.fillStyle = "green";
+              context.fill();
+
+              batchIndex++;
+              if (batchIndex * batchSize < centroids.length) {
+                requestAnimationFrame(drawBatch); // 下一帧继续绘制
+              } else {
+                console.log("All centroids drawn.");
+              }
+            }
+            drawBatch(); // 开始绘制第一批次
+          }
+        }
+
+        await fetchSegmentationData();
+        viewer.addHandler("viewport-change", renderOverlay);
+        viewer.addHandler("resize", () => {
+          canvas.width = viewer.container.clientWidth;
+          canvas.height = viewer.container.clientHeight;
+          renderOverlay();
+        });
+      };
+    }
     initOpenSeadragon();
   }, []);
 
@@ -115,9 +223,14 @@ export default function ViewerPage() {
     <div className="p-4">
       <div
         id="osd-viewer"
-        ref={viewerRef} // 绑定 ref 到 div 元素
-        style={{ width: '100%', height: 'calc(100vh - 66px)' }}
-      />
+        ref={viewerRef}
+        style={{
+          width: '100%',
+          height: 'calc(100vh - 66px)',
+          position: 'relative',
+        }}
+      >
+      </div>
     </div>
   );
 }

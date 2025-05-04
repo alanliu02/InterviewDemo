@@ -63,6 +63,22 @@ def load_slide(filename: str):
 #     if not file_path.exists():
 #         return {"error": "File not found"}
 
+@app.get("/segmentation/")
+def load_seg():
+    filename = list_svs_seg_files()[0]
+    file_path = SVS_DIR / filename
+    if not file_path.exists():
+        return {"error": "File not found"}
+    global h5_seg
+    h5_seg = File(file_path, 'r')
+    grp = h5_seg['SegmentationNode']
+    centroids = grp['centroids'][:]
+    info = {
+        "shape": grp['centroids'].shape,
+        "centroids": centroids.tolist(),
+        }
+    return info
+
 @app.get("/get_h5_info/{filename}")
 def get_h5_info(filename: str):
     file_path = SVS_DIR / filename
