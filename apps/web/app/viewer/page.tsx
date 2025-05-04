@@ -45,6 +45,8 @@ export default function ViewerPage() {
 
   useEffect(() => {
     // Function to initialize OpenSeadragon
+    let contourFetchAbortController: AbortController | null = null;
+
     const initOpenSeadragon = async () => {
       if (typeof window !== 'undefined' && viewerRef.current) {
         const OSD = (await import('openseadragon'));
@@ -138,13 +140,14 @@ export default function ViewerPage() {
           centroids = data1.centroids;
         }
 
-        async function fetchContoursData(batchIndexs: number[]) {
+        async function fetchContoursData(batchIndexs: number[], signal: AbortSignal) {
           const res2 = await fetch("http://127.0.0.1:8000/segmentation/contours", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
             },
             body: JSON.stringify({ indices: batchIndexs }),
+            signal,
           });
           const data2 = await res2.json();
           contours = data2.contours;
@@ -187,7 +190,7 @@ export default function ViewerPage() {
           const filteredCentroidCoord = filteredCentroids.map((point) => [point.x, point.y]);
           console.log("Filtered centroids count:", filteredCentroidCoord.length);
 
-            if (zoom < DRAW_THRESHOLD) {
+          if (zoom < DRAW_THRESHOLD) {
             const arcSize = 0.25 * zoom;
             const viewWidth = canvas.width;
             const viewHeight = canvas.height;
@@ -198,21 +201,21 @@ export default function ViewerPage() {
 
             function drawBatch() {
               if (currentRenderId !== renderId) {
-              console.log("Render aborted due to a new event.");
-              return; // Abort if a new render cycle has started
+                console.log("Render aborted due to a new event.");
+                return; // Abort if a new render cycle has started
               }
 
               const start = batchIndex * batchSize;
               const end = Math.min(start + batchSize, filteredCentroidCoord.length);
               context.beginPath();
               for (const [sx, sy] of filteredCentroidCoord.slice(start, end)) {
-              if (
-                sx == null || sy == null ||
-                sx < -arcSize || sy < -arcSize || sx > viewWidth + arcSize || sy > viewHeight + arcSize
-              ) continue;
+                if (
+                  sx == null || sy == null ||
+                  sx < -arcSize || sy < -arcSize || sx > viewWidth + arcSize || sy > viewHeight + arcSize
+                ) continue;
 
-              context.moveTo(sx + arcSize, sy);
-              context.arc(sx, sy, Math.max(MIN_VISIBLE_RADIUS, arcSize), 0, 2 * Math.PI);
+                context.moveTo(sx + arcSize, sy);
+                context.arc(sx, sy, Math.max(MIN_VISIBLE_RADIUS, arcSize), 0, 2 * Math.PI);
               }
 
               context.fillStyle = "green";
@@ -220,14 +223,18 @@ export default function ViewerPage() {
               batchIndex++;
 
               if (currentRenderId === renderId && batchIndex * batchSize < filteredCentroidCoord.length) {
-              requestAnimationFrame(drawBatch); // 下一帧继续绘制
+                requestAnimationFrame(drawBatch); // 下一帧继续绘制
               } else if (currentRenderId === renderId) {
-              console.log("All centroids drawn.", renderId);
+                console.log("All centroids drawn.", renderId);
               }
             }
             drawBatch(); // 开始绘制第一批次
-            }
+          }
           if (zoom >= DRAW_THRESHOLD) {
+            if (contourFetchAbortController) {
+              contourFetchAbortController.abort();
+            }
+            contourFetchAbortController = new AbortController();
             if (filteredCentroidIndices.length === 0) {
               console.log("No centroids to draw at this zoom level.");
               return;
@@ -250,69 +257,80 @@ export default function ViewerPage() {
                 console.log("No more batches to draw.");
                 return;
               }
-
-              await fetchContoursData(batchIndexs);
-
-              context.beginPath();
-              for (const contour of contours) {
-                if (!contour || contour.length === 0) continue;
-                let cst: [number, number] = [0, 0];
-                if (contour[0] && contour[0].length === 2) {
-                  cst = contour[0] as [number, number];
+              try {
+                await fetchContoursData(batchIndexs, contourFetchAbortController!.signal);
+                if (currentRenderId !== renderId) {
+                  console.log("Render aborted after fetch.");
+                  return;
                 }
-                const startPoint = toScreen(cst[0] * 16, cst[1] * 16) as [number, number];
-                context.moveTo(startPoint[0], startPoint[1]);
-                for (let i = 1; i < contour.length; i++) {
-                  const point = contour[i];
-                  if (!point) continue;
-                  const [x, y] = point as [number, number];
-                  const screenPoint = toScreen(x * 16, y * 16) as [number, number];
-                  context.lineTo(screenPoint[0], screenPoint[1]);
+                context.beginPath();
+                for (const contour of contours) {
+                  if (!contour || contour.length === 0) continue;
+                  let cst: [number, number] = [0, 0];
+                  if (contour[0] && contour[0].length === 2) {
+                    cst = contour[0] as [number, number];
+                  }
+                  const startPoint = toScreen(cst[0] * 16, cst[1] * 16) as [number, number];
+                  context.moveTo(startPoint[0], startPoint[1]);
+                  for (let i = 1; i < contour.length; i++) {
+                    const point = contour[i];
+                    if (!point) continue;
+                    const [x, y] = point as [number, number];
+                    const screenPoint = toScreen(x * 16, y * 16) as [number, number];
+                    context.lineTo(screenPoint[0], screenPoint[1]);
+                  }
+                  context.lineTo(startPoint[0], startPoint[1]); // Close the path
                 }
-                context.lineTo(startPoint[0], startPoint[1]); // Close the path
+                context.closePath();
+                context.fillStyle = "rgba(0, 208, 255,0.5)";
+                context.fill();
+
+                batchIndex++;
+                if (currentRenderId === renderId && batchIndex * batchSize < filteredCentroidIndices.length) {
+                  requestAnimationFrame(drawContoursBatch); // 下一帧继续绘制
+                } else if (currentRenderId === renderId) {
+                  console.log("All contours drawn.", renderId);
+                }
+              } catch (err) {
+                if ((err as any).name === 'AbortError') {
+                  console.log("Contour fetch aborted.");
+                }
+                else {
+                  console.error("Error fetching contours:", err);
+                }
+                drawContoursBatch(); // 开始绘制第一批次
               }
-            context.closePath();
-            context.fillStyle = "rgba(0, 208, 255,0.5)";
-            context.fill();
-
-            batchIndex++;
-            if (currentRenderId === renderId && batchIndex * batchSize < filteredCentroidIndices.length) {
-              requestAnimationFrame(drawContoursBatch); // 下一帧继续绘制
-            } else if (currentRenderId === renderId) {
-              console.log("All contours drawn.", renderId);
             }
             drawContoursBatch(); // 开始绘制第一批次
+            }
           }
-          drawContoursBatch(); // 开始绘制第一批次
-        }
+
+          await fetchSegmentationData();
+          viewer.addHandler("viewport-change", () => {
+            renderOverlay(); // Start a new rendering
+          });
+          viewer.addHandler("resize", () => {
+            canvas.width = viewer.container.clientWidth;
+            canvas.height = viewer.container.clientHeight;
+            renderOverlay(); // Start a new rendering
+          });
+        };
       }
+      initOpenSeadragon();
+    }, []);
 
-      await fetchSegmentationData();
-      viewer.addHandler("viewport-change", () => {
-        renderOverlay(); // Start a new rendering
-      });
-      viewer.addHandler("resize", () => {
-        canvas.width = viewer.container.clientWidth;
-        canvas.height = viewer.container.clientHeight;
-        renderOverlay(); // Start a new rendering
-      });
-    };
-  }
-    initOpenSeadragon();
-}, []);
-
-return (
-  <div className="p-4">
-    <div
-      id="osd-viewer"
-      ref={viewerRef}
-      style={{
-        width: '100%',
-        height: 'calc(100vh - 66px)',
-        position: 'relative',
-      }}
-    >
+  return (
+    <div className="p-4">
+      <div
+        id="osd-viewer"
+        ref={viewerRef}
+        style={{
+          width: '100%',
+          height: 'calc(100vh - 66px)',
+          position: 'relative',
+        }}
+      >
+      </div>
     </div>
-  </div>
-);
+  );
 }
