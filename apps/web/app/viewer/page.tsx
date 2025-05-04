@@ -163,7 +163,7 @@ export default function ViewerPage() {
           const zoom = viewer.viewport.getZoom(true);
           console.log("Current zoom level:", zoom);
           const toScreen = (x: number, y: number) => {
-            const pt = viewer.viewport.imageToViewerElementCoordinates(new OSD.Point(x, y));
+            const pt = viewer.viewport.imageToViewerElementCoordinates(new OSD.default.Point(x, y));
             return [pt.x, pt.y];
           };
 

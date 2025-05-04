@@ -18,7 +18,7 @@ app.on('ready', () => {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
-  mainWindow.webContents.openDevTools();
+  //mainWindow.webContents.openDevTools();
 });
 
 app.on('window-all-closed', () => {
